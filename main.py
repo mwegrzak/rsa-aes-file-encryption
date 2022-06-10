@@ -1,18 +1,19 @@
-#pip install pycryptodome hashlib matplotlib imageio
+#pip install pycryptodome imageio matplotlib
 
-from os.path import exists
-import hashlib
 import rng
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.Hash import SHA3_256
+from Crypto.Signature import pkcs1_15
 
 # default values
-img_filename = ''
+img_filename = 'lena.png'
 input_filename = ''
 public_key_filename = 'public.pem'
 private_key_filename = 'private.pem'
 encrypted_input_filename = ''
 decrypted_input_filename = ''
+sign_filename = ''
 
 def my_input(default_filename, message = 'Input a filename: '):
     filename = input(f"{message}[{default_filename}]: ")
@@ -21,21 +22,35 @@ def my_input(default_filename, message = 'Input a filename: '):
     else:
         return filename
 
-def hash_file():
+def generate_sign():
     global input_filename
-    my_hash = hashlib.sha3_256()
-    input_filename = my_input(input_filename)
+    global private_key_filename
+    global sign_filename
 
-    # reading file in binary mode
+    file_hash = SHA3_256.new()
+    
+    input_filename = my_input(input_filename)
+    sign_filename = 'sign_' + input_filename
+    private_key_filename = my_input(private_key_filename, 'Input private key filename: ')
+    sign_filename = my_input(sign_filename, 'Input name for sign file: ')
+
+    # generating hash; reading file in a binary mode
     with open(input_filename,'rb') as file:
         chunk = 0
         # until eof
         while chunk != b'':
             # read only 1024 bytes to avoid overloading memory in case of a big file
             chunk = file.read(1024)
-            my_hash.update(chunk)
+            file_hash.update(chunk)
 
-    return my_hash.hexdigest()
+    key = RSA.import_key(open(private_key_filename).read())
+    signature = pkcs1_15.new(key).sign(file_hash)
+
+    # save sign to a file
+    with open(sign_filename, 'wb') as file:
+        file.write(signature)
+                
+    return signature
 
 def encrypt_file(img):
     global input_filename
@@ -115,32 +130,67 @@ def generate_rsa_keys(img):
     file_out.close()
     return 
 
+def compare_hash():
+    global sign_filename
+    global public_key_filename
+    global input_filename
+
+    # input
+    sign_filename = my_input(sign_filename, 'Input sign filename to decrypt: ')
+    public_key_filename = my_input(public_key_filename, 'Input public key filename: ')
+    input_filename = my_input(input_filename, 'Input filename to check hash: ')
+    file_hash = SHA3_256.new()
+
+    key = RSA.import_key(open(public_key_filename).read())
+    
+    with open(input_filename,'rb') as file:
+        chunk = 0
+        # until eof
+        while chunk != b'':
+            # read only 1024 bytes to avoid overloading memory in case of a big file
+            chunk = file.read(1024)
+            file_hash.update(chunk)
+    
+    with open(sign_filename, 'rb') as file:
+        signature = file.read()
+            
+    try:
+        pkcs1_15.new(key).verify(file_hash, signature)
+        print("The signature is valid.")
+    except (ValueError, TypeError):
+       print("The signature is not valid.")
+
+    return
+
 def main():
     global img_filename
 
-
     print('Data encryption with RSA/AES using image as a RNG source')
-    print('by Maciej Wegrzak')
+    print('by Maciej Wegrzak 2022 \n')
 
     img_filename = my_input(img_filename, 'Input an image filename: ')
     print('Provide parameters for the logistic map to shuffle image') 
-    print('Remeber! Growth parameter r must be between 3.6 and 3.99')
-    print('x0 and y0 must be between 0 and 0.99 \n')
+    print('Important!')
+    print('Growth parameter r should be between 3.6 and 3.99')
+    print('x0 and y0 should be between 0 and 0.99 \n')
     r = float(input('r = '))
     x0 = float(input('x0 = '))
     y0 = float(input('y0 = '))
 
     myImg = rng.Rng(img_filename, r, x0, y0)
     while(True):
+        print('\n')
         print('1 - Display histograms of original and shuffled images')
         print('2 - Shuffle entropy source (image) with different parameters r, x0, y0')
         print("3 - Generate RSA keys")
-        print("4 - Generate hash")
-        print("5 - encrypt input")
-        print("6 - decrypt input")
-        print("0 - exit")
+        print("4 - Generate digital sign")
+        print("5 - Check sign")
+        print("6 - Encrypt file")
+        print("7 - Decrypt file")
+        print("0 - Exit")
 
         choice = input("Choose option: ")
+        print('\n')
         match choice :
             case '1':
                 myImg.dispImgHist()
@@ -150,19 +200,19 @@ def main():
                 y0 = float(input('y0 = '))
                 myImg.shuffle(r, x0, y0)
             case '3':
-                print(f'Generating RSA keys. \n Parameters used for {img_filename} are:  r = {r} x0 = {x0} y0 = {y0}')
+                print(f'Generating RSA keys. \n Parameters used for {img_filename} are: r = {r} x0 = {x0} y0 = {y0}')
                 generate_rsa_keys(myImg)
             case '4':
-                hash_digest = hash_file()
-                print(hash_digest)
+                print(generate_sign())
             case '5':
-                encrypt_file(myImg)
+                compare_hash()
             case '6':
+                encrypt_file(myImg)
+            case '7':
                 decrypt_file()
             case '0':
                 return 0
 
-
+    
 if __name__ == '__main__':
     main()
-
